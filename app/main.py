@@ -70,7 +70,8 @@ async def check_public_access(project_id: str):
         logger.info("Cloud SQL checks completed")
         # --- Datastore / Firestore ---
         crm_service = discovery.build("cloudresourcemanager", "v3", credentials=credentials)
-        policy = crm_service.projects().getIamPolicy(resource=project_id, body={}).execute()
+        policy = crm_service.projects().getIamPolicy(resource=f"projects/{project_id}", body={}).execute()
+
         datastore_public = is_public_iam(policy)
         result["Services"].append({
             "Service": "Datastore/Firestore",
@@ -78,7 +79,7 @@ async def check_public_access(project_id: str):
                 {"Check": "Project IAM public", "Result": "Fail" if datastore_public else "Pass"}
             ]
         })
-
+        logger.info("Datastore/Firestore checks completed")
         # --- BigQuery ---
         bq_client = bigquery.Client(project=project_id, credentials=credentials)
         service_results = {"Service": "BigQuery", "Checks": []}
@@ -91,20 +92,25 @@ async def check_public_access(project_id: str):
                 "Result": "Fail" if public else "Pass"
             })
         result["Services"].append(service_results)
-
+        logger.info("BigQuery checks completed")
         # --- Pub/Sub ---
         pubsub_client = pubsub_v1.PublisherClient(credentials=credentials)
         service_results = {"Service": "Pub/Sub", "Checks": []}
         for topic in pubsub_client.list_topics(request={"project": f"projects/{project_id}"}):
             iam_policy = pubsub_client.get_iam_policy(request={"resource": topic.name})
-            public = is_public_iam(dict(iam_policy))
+            public = any(
+                member in PUBLIC_IDENTITIES
+                for binding in iam_policy.bindings
+                for member in binding.members
+            )
             service_results["Checks"].append({
                 "Check": f"Topic {topic.name} IAM public",
                 "Result": "Fail" if public else "Pass"
             })
         result["Services"].append(service_results)
-
+        logger.info("Pub/Sub checks completed")
     except Exception as e:
+        logger.error("Error occurred during compliance checks", exc_info=e)
         raise HTTPException(status_code=500, detail=str(e))
 
     return result
