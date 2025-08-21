@@ -10,7 +10,7 @@ from .dataclass import (
     ProjectPoliciesResponse, ComplianceAnalysisResponse
 )
 from .helper import (
-    fetch_iam_policies_for_project, analyze_compliance_issues
+    fetch_iam_policies_for_project, fetch_iam_policies_asset_api, analyze_compliance_issues
 )
 
 # Create data directory for JSON dumps
@@ -49,7 +49,9 @@ async def root():
         "message": "Compliance Checks API",
         "version": "0.1.0",
         "endpoints": {
-            "/iam-policies/{project_id}": "Get IAM policies for a project",
+            "/iam-policies/{project_id}": "Get VM instance IAM policies for a project (Compute API)",
+            "/iam-policies-asset-api/{project_id}": "Get IAM policies for all resources (Asset API)",
+            "/compliance-analysis/{project_id}": "Analyze VM instance compliance issues",
             "/docs": "API documentation"
         }
     }
@@ -58,26 +60,26 @@ async def root():
 @app.get("/iam-policies/{project_id}", response_model=ProjectPoliciesResponse)
 async def get_iam_policies(
     project_id: str,
-    asset_types: Optional[List[str]] = Query(None, description="List of asset types to filter")
+    zones: Optional[List[str]] = Query(None, description="List of zones to filter")
 ):
     """
-    Capture IAM policy data for all resources in a Google Cloud project.
+    Capture IAM policy data for all VM instances in a Google Cloud project.
     
     Args:
         project_id: The Google Cloud project ID
-        asset_types: Optional list of specific asset types to query
+        zones: Optional list of specific zones to query
     
     Returns:
-        ProjectPoliciesResponse containing all IAM policies found
+        ProjectPoliciesResponse containing all VM instance IAM policies found
     """
-    logger.info(f"Fetching IAM policies for project: {project_id}")
+    logger.info(f"Fetching VM instance IAM policies for project: {project_id}")
     
     if not project_id:
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
-        result = await fetch_iam_policies_for_project(project_id, asset_types)
-        logger.info(f"Successfully fetched {result.total_policies} policies for project {project_id}")
+        result = await fetch_iam_policies_for_project(project_id, zones)
+        logger.info(f"Successfully fetched {result.total_policies} VM instance policies for project {project_id}")
         return result
     except HTTPException:
         raise
@@ -92,7 +94,7 @@ async def save_iam_data(project_id: str) -> Dict[str, Any]:
     try:
         logger.info(f"Saving IAM data for project: {project_id}")
         
-        # Fetch all IAM policies
+        # Fetch all IAM policies (using VM instance method by default)
         policies_response = await fetch_iam_policies_for_project(project_id)
         
         # Perform compliance analysis
@@ -144,26 +146,57 @@ async def save_iam_data(project_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed to save IAM data: {str(e)}")
 
 
-@app.get("/compliance-analysis/{project_id}", response_model=ComplianceAnalysisResponse)
-async def get_compliance_analysis(
+@app.get("/iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)
+async def get_iam_policies_asset_api(
     project_id: str,
     asset_types: Optional[List[str]] = Query(None, description="List of asset types to filter")
 ):
     """
-    Analyze IAM policies for compliance issues (public access, cross-project access).
+    Capture IAM policy data for all resources in a Google Cloud project using Asset API.
     
     Args:
         project_id: The Google Cloud project ID
         asset_types: Optional list of specific asset types to query
     
     Returns:
+        ProjectPoliciesResponse containing all resource IAM policies found
+    """
+    logger.info(f"Fetching all resource IAM policies via Asset API for project: {project_id}")
+    
+    if not project_id:
+        raise HTTPException(status_code=400, detail="Project ID is required")
+    
+    try:
+        result = await fetch_iam_policies_asset_api(project_id, asset_types)
+        logger.info(f"Successfully fetched {result.total_policies} resource policies via Asset API for project {project_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error fetching policies via Asset API for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/compliance-analysis/{project_id}", response_model=ComplianceAnalysisResponse)
+async def get_compliance_analysis(
+    project_id: str,
+    zones: Optional[List[str]] = Query(None, description="List of zones to filter")
+):
+    """
+    Analyze VM instance IAM policies for compliance issues (public access, cross-project access).
+    
+    Args:
+        project_id: The Google Cloud project ID
+        zones: Optional list of specific zones to query
+    
+    Returns:
         ComplianceAnalysisResponse with detected issues and recommendations
     """
-    logger.info(f"Analyzing compliance for project: {project_id}")
+    logger.info(f"Analyzing VM instance compliance for project: {project_id}")
     
     try:
         # Fetch policies first
-        policies_response = await fetch_iam_policies_for_project(project_id, asset_types)
+        policies_response = await fetch_iam_policies_for_project(project_id, zones)
         
         # Analyze for compliance issues
         analysis = analyze_compliance_issues(project_id, policies_response.policies)
@@ -174,6 +207,39 @@ async def get_compliance_analysis(
         raise
     except Exception as e:
         logger.error(f"Unexpected error during compliance analysis for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/compliance-analysis-asset-api/{project_id}", response_model=ComplianceAnalysisResponse)
+async def get_compliance_analysis_asset_api(
+    project_id: str,
+    asset_types: Optional[List[str]] = Query(None, description="List of asset types to filter")
+):
+    """
+    Analyze all resource IAM policies for compliance issues using Asset API.
+    
+    Args:
+        project_id: The Google Cloud project ID
+        asset_types: Optional list of specific asset types to query
+    
+    Returns:
+        ComplianceAnalysisResponse with detected issues and recommendations
+    """
+    logger.info(f"Analyzing all resource compliance via Asset API for project: {project_id}")
+    
+    try:
+        # Fetch policies first
+        policies_response = await fetch_iam_policies_asset_api(project_id, asset_types)
+        
+        # Analyze for compliance issues
+        analysis = analyze_compliance_issues(project_id, policies_response.policies)
+        
+        logger.info(f"Asset API compliance analysis completed for project {project_id}: {len(analysis.issues_found)} issues found")
+        return analysis
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during Asset API compliance analysis for project {project_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
