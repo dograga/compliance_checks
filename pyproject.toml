@@ -10,5 +10,6 @@ dependencies = [
     "google-api-python-client>=2.108.0",
     "google-cloud-asset>=3.24.0",
     "google-auth>=2.23.4",
-    "pydantic>=2.5.0"
+    "pydantic>=2.5.0",
+    "google-cloud-resource-manager>=1.14.2",
 ]

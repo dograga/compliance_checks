@@ -143,6 +143,7 @@ dependencies = [
     { name = "google-api-python-client" },
     { name = "google-auth" },
     { name = "google-cloud-asset" },
+    { name = "google-cloud-resource-manager" },
     { name = "pydantic" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -153,6 +154,7 @@ requires-dist = [
     { name = "google-api-python-client", specifier = ">=2.108.0" },
     { name = "google-auth", specifier = ">=2.23.4" },
     { name = "google-cloud-asset", specifier = ">=3.24.0" },
+    { name = "google-cloud-resource-manager", specifier = ">=1.14.2" },
     { name = "pydantic", specifier = ">=2.5.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.24.0" },
 ]
@@ -308,6 +310,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/29/16/e33cd55ca705b4ad81b8738ca2017b7d8a6d7b900c713cb3a2021d7dc879/google_cloud_os_config-1.21.0.tar.gz", hash = "sha256:34a75bfc4f423b5669f7c90772fa98348af42f6ec2fa28d0d6e953de9e7ca929", size = 297728, upload-time = "2025-08-11T14:59:14.733Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/86/80/6e0487d46df9f8d54fb0fdaa3e94af31b13c8220eca8c037e10bb2e6af52/google_cloud_os_config-1.21.0-py3-none-any.whl", hash = "sha256:e4a0c644adc474e31f19f4e0985a576bd94a61fbd9fdd6e3dfb840edaa60c36f", size = 260585, upload-time = "2025-08-11T14:59:02.533Z" },
+]
+
+[[package]]
+name = "google-cloud-resource-manager"
+version = "1.14.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpc-google-iam-v1" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6e/ca/a4648f5038cb94af4b3942815942a03aa9398f9fb0bef55b3f1585b9940d/google_cloud_resource_manager-1.14.2.tar.gz", hash = "sha256:962e2d904c550d7bac48372607904ff7bb3277e3bb4a36d80cc9a37e28e6eb74", size = 446370, upload-time = "2025-03-17T11:35:56.343Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b1/ea/a92631c358da377af34d3a9682c97af83185c2d66363d5939ab4a1169a7f/google_cloud_resource_manager-1.14.2-py3-none-any.whl", hash = "sha256:d0fa954dedd1d2b8e13feae9099c01b8aac515b648e612834f9942d2795a9900", size = 394344, upload-time = "2025-03-17T11:35:54.722Z" },
 ]
 
 [[package]]

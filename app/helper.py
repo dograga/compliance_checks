@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 from google.cloud import asset_v1
+from google.cloud import resourcemanager_v1
 from google.api_core import exceptions as gcp_exceptions
 import google.auth
 
@@ -349,14 +350,36 @@ async def fetch_iam_policies_asset_api(project_id: str, asset_types: Optional[Li
             try:
                 # Get IAM policy for each resource
                 logger.debug(f"Fetching IAM policy for {resource.name}")
-                policy_request = asset_v1.GetIamPolicyRequest(
-                    resource=resource.name
-                )
                 
                 try:
-                    policy = client.get_iam_policy(request=policy_request)
-                    logger.debug(f"Successfully retrieved IAM policy for {resource.name}")
-                    converted_policy = convert_asset_policy_to_pydantic(policy)
+                    # Extract resource type and handle accordingly
+                    if resource.asset_type == "compute.googleapis.com/Instance":
+                        # For compute instances, we need to use the compute API directly
+                        # Extract project, zone, instance from resource name
+                        # Format: //compute.googleapis.com/projects/PROJECT/zones/ZONE/instances/INSTANCE
+                        parts = resource.name.split('/')
+                        if len(parts) >= 8:
+                            project = parts[4]
+                            zone = parts[6] 
+                            instance = parts[8]
+                            
+                            # Use compute service to get IAM policy
+                            compute_service = get_compute_service()
+                            policy_response = compute_service.instances().getIamPolicy(
+                                project=project,
+                                zone=zone,
+                                resource=instance
+                            ).execute()
+                            
+                            logger.debug(f"Successfully retrieved IAM policy for {resource.name}")
+                            converted_policy = convert_policy_to_pydantic(policy_response)
+                        else:
+                            logger.warning(f"Could not parse resource name: {resource.name}")
+                            converted_policy = None
+                    else:
+                        # For other resource types, skip for now
+                        logger.debug(f"Skipping unsupported resource type: {resource.asset_type}")
+                        converted_policy = None
                     
                     policies.append(PolicyResponse(
                         project_id=project_id,
