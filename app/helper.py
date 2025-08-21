@@ -6,7 +6,7 @@ from fastapi import HTTPException
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 from google.cloud import asset_v1
-from google.cloud import resourcemanager_v1
+from google.cloud import resourcemanager_v3
 from google.api_core import exceptions as gcp_exceptions
 import google.auth
 
