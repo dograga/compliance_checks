@@ -324,11 +324,23 @@ def get_asset_client():
         raise HTTPException(status_code=500, detail="Failed to initialize Google Cloud Asset client")
 
 
-def get_default_asset_types() -> List[str]:
-    """Get default asset types that support IAM policies."""
+def get_vm_asset_types() -> List[str]:
+    """Get asset types for VM instances."""
     return [
         "compute.googleapis.com/Instance",
     ]
+
+
+def get_bucket_asset_types() -> List[str]:
+    """Get asset types for Cloud Storage buckets."""
+    return [
+        "storage.googleapis.com/Bucket",
+    ]
+
+
+def get_default_asset_types() -> List[str]:
+    """Get default asset types that support IAM policies."""
+    return get_vm_asset_types() + get_bucket_asset_types()
 
 
 def convert_asset_policy_to_pydantic(policy) -> Optional[IAMPolicy]:
@@ -359,45 +371,49 @@ def convert_asset_policy_to_pydantic(policy) -> Optional[IAMPolicy]:
     )
 
 
-async def process_resource_policy_asset_api(resource, project_id: str) -> PolicyResponse:
-    """Process IAM policy for a single resource using Asset API asynchronously."""
+def get_storage_service():
+    """Initialize and return Google Cloud Storage service."""
     try:
-        logger.debug(f"Fetching IAM policy for {resource.name}")
+        credentials, project = google.auth.default()
+        logger.info("Storage service initialized")
+        return discovery.build("storage", "v1", credentials=credentials)
+    except Exception as e:
+        logger.error(f"Failed to initialize Storage service: {e}")
+        raise HTTPException(status_code=500, detail="Failed to initialize Google Cloud Storage client")
+
+
+async def process_vm_instance_policy(resource, project_id: str) -> PolicyResponse:
+    """Process IAM policy for a VM instance using Asset API asynchronously."""
+    try:
+        logger.debug(f"Fetching IAM policy for VM instance: {resource.name}")
         
-        # Extract resource type and handle accordingly
-        if resource.asset_type == "compute.googleapis.com/Instance":
-            # For compute instances, we need to use the compute API directly
-            # Extract project, zone, instance from resource name
-            # Format: //compute.googleapis.com/projects/PROJECT/zones/ZONE/instances/INSTANCE
-            parts = resource.name.split('/')
-            if len(parts) >= 8:
-                project = parts[4]
-                zone = parts[6] 
-                instance = parts[8]
-                
-                # Use compute service to get IAM policy
-                compute_service = get_compute_service()
-                request = compute_service.instances().getIamPolicy(
-                    project=project,
-                    zone=zone,
-                    resource=instance
-                )
-                policy_response = await async_execute_request(request)
-                
-                logger.debug(f"Successfully retrieved IAM policy for {resource.name}")
-                converted_policy = convert_policy_to_pydantic(policy_response)
-            else:
-                logger.warning(f"Could not parse resource name: {resource.name}")
-                converted_policy = None
+        # Extract project, zone, instance from resource name
+        # Format: //compute.googleapis.com/projects/PROJECT/zones/ZONE/instances/INSTANCE
+        parts = resource.name.split('/')
+        if len(parts) >= 8:
+            project = parts[4]
+            zone = parts[6] 
+            instance = parts[8]
+            
+            # Use compute service to get IAM policy
+            compute_service = get_compute_service()
+            request = compute_service.instances().getIamPolicy(
+                project=project,
+                zone=zone,
+                resource=instance
+            )
+            policy_response = await async_execute_request(request)
+            
+            logger.debug(f"Successfully retrieved IAM policy for VM instance: {resource.name}")
+            converted_policy = convert_policy_to_pydantic(policy_response)
         else:
-            # For other resource types, skip for now
-            logger.debug(f"Skipping unsupported resource type: {resource.asset_type}")
+            logger.warning(f"Could not parse VM instance resource name: {resource.name}")
             converted_policy = None
         
         if converted_policy and converted_policy.bindings:
-            logger.debug(f"Resource {resource.name} has {len(converted_policy.bindings)} IAM bindings")
+            logger.debug(f"VM instance {resource.name} has {len(converted_policy.bindings)} IAM bindings")
         else:
-            logger.debug(f"Resource {resource.name} has no IAM bindings")
+            logger.debug(f"VM instance {resource.name} has no IAM bindings")
         
         return PolicyResponse(
             project_id=project_id,
@@ -407,7 +423,7 @@ async def process_resource_policy_asset_api(resource, project_id: str) -> Policy
         )
         
     except gcp_exceptions.PermissionDenied:
-        logger.warning(f"Permission denied for resource {resource.name}")
+        logger.warning(f"Permission denied for VM instance {resource.name}")
         return PolicyResponse(
             project_id=project_id,
             resource_name=resource.name,
@@ -415,13 +431,255 @@ async def process_resource_policy_asset_api(resource, project_id: str) -> Policy
             error="Permission denied"
         )
     except Exception as e:
-        logger.error(f"Failed to get policy for {resource.name}: {str(e)}")
+        logger.error(f"Failed to get policy for VM instance {resource.name}: {str(e)}")
         return PolicyResponse(
             project_id=project_id,
             resource_name=resource.name,
             asset_type=resource.asset_type,
             error=str(e)
         )
+
+
+async def process_bucket_policy(resource, project_id: str) -> PolicyResponse:
+    """Process IAM policy for a Cloud Storage bucket using Asset API asynchronously."""
+    try:
+        logger.debug(f"Fetching IAM policy for bucket: {resource.name}")
+        
+        # Extract bucket name from resource name
+        # Format: //storage.googleapis.com/projects/_/buckets/BUCKET_NAME
+        parts = resource.name.split('/')
+        if len(parts) >= 6:
+            bucket_name = parts[5]
+            
+            # Use storage service to get IAM policy
+            storage_service = get_storage_service()
+            request = storage_service.buckets().getIamPolicy(
+                bucket=bucket_name
+            )
+            policy_response = await async_execute_request(request)
+            
+            logger.debug(f"Successfully retrieved IAM policy for bucket: {resource.name}")
+            converted_policy = convert_policy_to_pydantic(policy_response)
+        else:
+            logger.warning(f"Could not parse bucket resource name: {resource.name}")
+            converted_policy = None
+        
+        if converted_policy and converted_policy.bindings:
+            logger.debug(f"Bucket {resource.name} has {len(converted_policy.bindings)} IAM bindings")
+        else:
+            logger.debug(f"Bucket {resource.name} has no IAM bindings")
+        
+        return PolicyResponse(
+            project_id=project_id,
+            resource_name=resource.name,
+            asset_type=resource.asset_type,
+            policy=converted_policy
+        )
+        
+    except gcp_exceptions.PermissionDenied:
+        logger.warning(f"Permission denied for bucket {resource.name}")
+        return PolicyResponse(
+            project_id=project_id,
+            resource_name=resource.name,
+            asset_type=resource.asset_type,
+            error="Permission denied"
+        )
+    except Exception as e:
+        logger.error(f"Failed to get policy for bucket {resource.name}: {str(e)}")
+        return PolicyResponse(
+            project_id=project_id,
+            resource_name=resource.name,
+            asset_type=resource.asset_type,
+            error=str(e)
+        )
+
+
+async def process_resource_policy_asset_api(resource, project_id: str) -> PolicyResponse:
+    """Process IAM policy for a single resource using Asset API asynchronously."""
+    if resource.asset_type == "compute.googleapis.com/Instance":
+        return await process_vm_instance_policy(resource, project_id)
+    elif resource.asset_type == "storage.googleapis.com/Bucket":
+        return await process_bucket_policy(resource, project_id)
+    else:
+        logger.debug(f"Skipping unsupported resource type: {resource.asset_type}")
+        return PolicyResponse(
+            project_id=project_id,
+            resource_name=resource.name,
+            asset_type=resource.asset_type,
+            error=f"Unsupported resource type: {resource.asset_type}"
+        )
+
+
+async def fetch_vm_iam_policies_asset_api(project_id: str) -> ProjectPoliciesResponse:
+    """Fetch IAM policies for VM instances in a project using Asset API with concurrent processing."""
+    logger.info(f"Starting Asset API VM instance IAM policy fetch for project: {project_id}")
+    
+    asset_types = get_vm_asset_types()
+    logger.info(f"Using VM asset types: {asset_types}")
+    
+    try:
+        # Initialize client and search for VM instances
+        client = get_asset_client()
+        parent = f"projects/{project_id}"
+        
+        logger.info(f"Searching for VM instances in project {project_id}")
+        request = asset_v1.SearchAllResourcesRequest(
+            scope=parent,
+            asset_types=asset_types,
+            page_size=1000
+        )
+        
+        # Execute the search asynchronously
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            page_result = await loop.run_in_executor(
+                executor, 
+                client.search_all_resources, 
+                request
+            )
+        
+        # Convert to list to get all resources
+        resources = list(page_result)
+        total_resources_found = len(resources)
+        logger.info(f"Found {total_resources_found} VM instances to process")
+        
+        if not resources:
+            logger.info("No VM instances found")
+            return ProjectPoliciesResponse(
+                project_id=project_id,
+                policies=[],
+                total_policies=0,
+                errors=[]
+            )
+        
+        # Process all VM instances concurrently
+        logger.info(f"Processing {total_resources_found} VM instances concurrently...")
+        tasks = [
+            process_vm_instance_policy(resource, project_id)
+            for resource in resources
+        ]
+        
+        # Use asyncio.gather to process resources concurrently
+        policy_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Aggregate results
+        policies = []
+        errors = []
+        
+        for result in policy_results:
+            if isinstance(result, Exception):
+                error_msg = f"Failed to process VM instance: {str(result)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+            else:
+                policies.append(result)
+        
+        logger.info(f"Completed VM instance Asset API scan. Total instances found: {total_resources_found}, Policies retrieved: {len(policies)}, Errors: {len(errors)}")
+    
+    except gcp_exceptions.PermissionDenied:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Permission denied accessing project {project_id}. Ensure you have the required Asset API permissions for VM instances."
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch VM instance policies for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch VM instance IAM policies via Asset API: {str(e)}")
+    
+    result = ProjectPoliciesResponse(
+        project_id=project_id,
+        policies=policies,
+        total_policies=len(policies),
+        errors=errors
+    )
+    
+    logger.info(f"VM instance Asset API IAM policy fetch completed for project {project_id}: {len(policies)} policies, {len(errors)} errors")
+    return result
+
+
+async def fetch_bucket_iam_policies_asset_api(project_id: str) -> ProjectPoliciesResponse:
+    """Fetch IAM policies for Cloud Storage buckets in a project using Asset API with concurrent processing."""
+    logger.info(f"Starting Asset API bucket IAM policy fetch for project: {project_id}")
+    
+    asset_types = get_bucket_asset_types()
+    logger.info(f"Using bucket asset types: {asset_types}")
+    
+    try:
+        # Initialize client and search for buckets
+        client = get_asset_client()
+        parent = f"projects/{project_id}"
+        
+        logger.info(f"Searching for buckets in project {project_id}")
+        request = asset_v1.SearchAllResourcesRequest(
+            scope=parent,
+            asset_types=asset_types,
+            page_size=1000
+        )
+        
+        # Execute the search asynchronously
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            page_result = await loop.run_in_executor(
+                executor, 
+                client.search_all_resources, 
+                request
+            )
+        
+        # Convert to list to get all resources
+        resources = list(page_result)
+        total_resources_found = len(resources)
+        logger.info(f"Found {total_resources_found} buckets to process")
+        
+        if not resources:
+            logger.info("No buckets found")
+            return ProjectPoliciesResponse(
+                project_id=project_id,
+                policies=[],
+                total_policies=0,
+                errors=[]
+            )
+        
+        # Process all buckets concurrently
+        logger.info(f"Processing {total_resources_found} buckets concurrently...")
+        tasks = [
+            process_bucket_policy(resource, project_id)
+            for resource in resources
+        ]
+        
+        # Use asyncio.gather to process resources concurrently
+        policy_results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Aggregate results
+        policies = []
+        errors = []
+        
+        for result in policy_results:
+            if isinstance(result, Exception):
+                error_msg = f"Failed to process bucket: {str(result)}"
+                errors.append(error_msg)
+                logger.error(error_msg)
+            else:
+                policies.append(result)
+        
+        logger.info(f"Completed bucket Asset API scan. Total buckets found: {total_resources_found}, Policies retrieved: {len(policies)}, Errors: {len(errors)}")
+    
+    except gcp_exceptions.PermissionDenied:
+        raise HTTPException(
+            status_code=403, 
+            detail=f"Permission denied accessing project {project_id}. Ensure you have the required Asset API permissions for Cloud Storage buckets."
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch bucket policies for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch bucket IAM policies via Asset API: {str(e)}")
+    
+    result = ProjectPoliciesResponse(
+        project_id=project_id,
+        policies=policies,
+        total_policies=len(policies),
+        errors=errors
+    )
+    
+    logger.info(f"Bucket Asset API IAM policy fetch completed for project {project_id}: {len(policies)} policies, {len(errors)} errors")
+    return result
 
 
 async def fetch_iam_policies_asset_api(project_id: str, asset_types: Optional[List[str]] = None) -> ProjectPoliciesResponse:

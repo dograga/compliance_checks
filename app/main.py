@@ -10,7 +10,9 @@ from .dataclass import (
     ProjectPoliciesResponse, ComplianceAnalysisResponse
 )
 from .helper import (
-    fetch_iam_policies_for_project, fetch_iam_policies_asset_api, analyze_compliance_issues
+    fetch_iam_policies_for_project, fetch_iam_policies_asset_api, 
+    fetch_vm_iam_policies_asset_api, fetch_bucket_iam_policies_asset_api,
+    analyze_compliance_issues
 )
 
 # Create data directory for JSON dumps
@@ -51,7 +53,11 @@ async def root():
         "endpoints": {
             "/iam-policies/{project_id}": "Get VM instance IAM policies for a project (Compute API)",
             "/iam-policies-asset-api/{project_id}": "Get IAM policies for all resources (Asset API)",
+            "/vm-iam-policies-asset-api/{project_id}": "Get VM instance IAM policies (Asset API)",
+            "/bucket-iam-policies-asset-api/{project_id}": "Get Cloud Storage bucket IAM policies (Asset API)",
             "/compliance-analysis/{project_id}": "Analyze VM instance compliance issues",
+            "/vm-compliance-analysis-asset-api/{project_id}": "Analyze VM instance compliance (Asset API)",
+            "/bucket-compliance-analysis-asset-api/{project_id}": "Analyze bucket compliance (Asset API)",
             "/docs": "API documentation"
         }
     }
@@ -210,6 +216,60 @@ async def get_compliance_analysis(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.get("/vm-iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)
+async def get_vm_iam_policies_asset_api(project_id: str):
+    """
+    Capture IAM policy data for VM instances in a Google Cloud project using Asset API.
+    
+    Args:
+        project_id: The Google Cloud project ID
+    
+    Returns:
+        ProjectPoliciesResponse containing all VM instance IAM policies found
+    """
+    logger.info(f"Fetching VM instance IAM policies via Asset API for project: {project_id}")
+    
+    if not project_id:
+        raise HTTPException(status_code=400, detail="Project ID is required")
+    
+    try:
+        result = await fetch_vm_iam_policies_asset_api(project_id)
+        logger.info(f"Successfully fetched {result.total_policies} VM instance policies via Asset API for project {project_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error fetching VM instance policies via Asset API for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/bucket-iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)
+async def get_bucket_iam_policies_asset_api(project_id: str):
+    """
+    Capture IAM policy data for Cloud Storage buckets in a Google Cloud project using Asset API.
+    
+    Args:
+        project_id: The Google Cloud project ID
+    
+    Returns:
+        ProjectPoliciesResponse containing all bucket IAM policies found
+    """
+    logger.info(f"Fetching bucket IAM policies via Asset API for project: {project_id}")
+    
+    if not project_id:
+        raise HTTPException(status_code=400, detail="Project ID is required")
+    
+    try:
+        result = await fetch_bucket_iam_policies_asset_api(project_id)
+        logger.info(f"Successfully fetched {result.total_policies} bucket policies via Asset API for project {project_id}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error fetching bucket policies via Asset API for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/compliance-analysis-asset-api/{project_id}", response_model=ComplianceAnalysisResponse)
 async def get_compliance_analysis_asset_api(
     project_id: str,
@@ -240,6 +300,64 @@ async def get_compliance_analysis_asset_api(
         raise
     except Exception as e:
         logger.error(f"Unexpected error during Asset API compliance analysis for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/vm-compliance-analysis-asset-api/{project_id}", response_model=ComplianceAnalysisResponse)
+async def get_vm_compliance_analysis_asset_api(project_id: str):
+    """
+    Analyze VM instance IAM policies for compliance issues using Asset API.
+    
+    Args:
+        project_id: The Google Cloud project ID
+    
+    Returns:
+        ComplianceAnalysisResponse with detected issues and recommendations
+    """
+    logger.info(f"Analyzing VM instance compliance via Asset API for project: {project_id}")
+    
+    try:
+        # Fetch VM instance policies first
+        policies_response = await fetch_vm_iam_policies_asset_api(project_id)
+        
+        # Analyze for compliance issues
+        analysis = analyze_compliance_issues(project_id, policies_response.policies)
+        
+        logger.info(f"VM instance Asset API compliance analysis completed for project {project_id}: {len(analysis.issues_found)} issues found")
+        return analysis
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during VM instance Asset API compliance analysis for project {project_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/bucket-compliance-analysis-asset-api/{project_id}", response_model=ComplianceAnalysisResponse)
+async def get_bucket_compliance_analysis_asset_api(project_id: str):
+    """
+    Analyze Cloud Storage bucket IAM policies for compliance issues using Asset API.
+    
+    Args:
+        project_id: The Google Cloud project ID
+    
+    Returns:
+        ComplianceAnalysisResponse with detected issues and recommendations
+    """
+    logger.info(f"Analyzing bucket compliance via Asset API for project: {project_id}")
+    
+    try:
+        # Fetch bucket policies first
+        policies_response = await fetch_bucket_iam_policies_asset_api(project_id)
+        
+        # Analyze for compliance issues
+        analysis = analyze_compliance_issues(project_id, policies_response.policies)
+        
+        logger.info(f"Bucket Asset API compliance analysis completed for project {project_id}: {len(analysis.issues_found)} issues found")
+        return analysis
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during bucket Asset API compliance analysis for project {project_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
