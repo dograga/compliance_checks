@@ -1,10 +1,10 @@
-import logging
 import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+import structlog
 from .dataclass import ProjectPoliciesResponse
 from .gcp_helper import (
     get_bucket_policies, fetch_vm_iam_policies_asset_api,
@@ -14,9 +14,26 @@ from .gcp_helper import (
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Configure structlog
+structlog.configure(
+    processors=[
+        structlog.stdlib.filter_by_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.UnicodeDecoder(),
+        structlog.processors.JSONRenderer()
+    ],
+    context_class=dict,
+    logger_factory=structlog.stdlib.LoggerFactory(),
+    wrapper_class=structlog.stdlib.BoundLogger,
+    cache_logger_on_first_use=True,
+)
+
+logger = structlog.get_logger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -38,7 +55,7 @@ app.add_middleware(
 async def save_iam_data(project_id: str) -> Dict[str, Any]:
     """Save VM instance and bucket IAM data to JSON file"""
     try:
-        logger.info(f"Saving IAM data for project: {project_id}")
+        logger.info("Saving IAM data for project", project_id=project_id)
 
         # Fetch VM instance IAM policies
         vm_policies_response = await fetch_vm_iam_policies_asset_api(project_id)
@@ -69,7 +86,7 @@ async def save_iam_data(project_id: str) -> Dict[str, Any]:
         with open(file_path, 'w') as f:
             json.dump(iam_data, f, indent=2, default=str)
 
-        logger.info(f"IAM data saved to {file_path}")
+        logger.info("IAM data saved", file_path=str(file_path))
 
         return {
             "message": "IAM data saved successfully",
@@ -82,42 +99,46 @@ async def save_iam_data(project_id: str) -> Dict[str, Any]:
         }
 
     except Exception as e:
-        logger.error(f"Error saving IAM data for project {project_id}: {str(e)}")
+        logger.error("Error saving IAM data", project_id=project_id, error=str(e))
         raise HTTPException(status_code=500, detail=f"Failed to save IAM data: {str(e)}")
 
 @app.get("/vm-iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)
 async def get_vm_iam_policies_asset_api(project_id: str):
-    logger.info(f"Fetching VM instance IAM policies via Asset API for project: {project_id}")
+    logger.info("Fetching VM instance IAM policies via Asset API", project_id=project_id)
     
     if not project_id:
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
         result = await fetch_vm_iam_policies_asset_api(project_id)
-        logger.info(f"Successfully fetched {result.total_policies} VM instance policies via Asset API for project {project_id}")
+        logger.info("Successfully fetched VM instance policies via Asset API", 
+                   project_id=project_id, total_policies=result.total_policies)
         return result
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error fetching VM instance policies via Asset API for project {project_id}: {e}")
+        logger.error("Unexpected error fetching VM instance policies via Asset API", 
+                    project_id=project_id, error=str(e))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get("/bucket-iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)
 async def get_bucket_iam_policies_asset_api(project_id: str):
-    logger.info(f"Fetching bucket IAM policies via Asset API for project: {project_id}")
+    logger.info("Fetching bucket IAM policies via Asset API", project_id=project_id)
     
     if not project_id:
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
         result = await get_bucket_policies(project_id)
-        logger.info(f"Successfully fetched {result.total_policies} bucket policies via Asset API for project {project_id}")
+        logger.info("Successfully fetched bucket policies via Asset API", 
+                   project_id=project_id, total_policies=result.total_policies)
         return result
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error fetching bucket policies via Asset API for project {project_id}: {e}")
+        logger.error("Unexpected error fetching bucket policies via Asset API", 
+                    project_id=project_id, error=str(e))
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

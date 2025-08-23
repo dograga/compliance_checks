@@ -1,7 +1,7 @@
 """GCP Helper functions for the compliance checks application."""
 
 import asyncio
-import logging
+import structlog
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Dict
 from fastapi import HTTPException
@@ -17,17 +17,18 @@ from .dataclass import (
     IAMPolicy, IAMBinding, PolicyResponse, ProjectPoliciesResponse
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def get_compute_service():
     """Initialize and return Google Cloud Compute Engine service."""
     try:
         credentials, project = google.auth.default()
-        logger.info("FastAPI is using credentials for:", credentials.service_account_email if hasattr(credentials, "service_account_email") else credentials.quota_project_id)
+        logger.info("FastAPI is using credentials", 
+                   account=credentials.service_account_email if hasattr(credentials, "service_account_email") else credentials.quota_project_id)
         return discovery.build("compute", "v1", credentials=credentials)
     except Exception as e:
-        logger.error(f"Failed to initialize Compute service: {e}")
+        logger.error("Failed to initialize Compute service", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to initialize Google Cloud client")
 
 
@@ -38,7 +39,7 @@ def get_storage_service():
         logger.info("Storage service initialized")
         return discovery.build("storage", "v1", credentials=credentials)
     except Exception as e:
-        logger.error(f"Failed to initialize Storage service: {e}")
+        logger.error("Failed to initialize Storage service", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to initialize Google Cloud Storage client")
 
 
@@ -49,7 +50,7 @@ def get_asset_client():
         logger.info("Asset API client initialized")
         return asset_v1.AssetServiceClient(credentials=credentials)
     except Exception as e:
-        logger.error(f"Failed to initialize Asset client: {e}")
+        logger.error("Failed to initialize Asset client", error=str(e))
         raise HTTPException(status_code=500, detail="Failed to initialize Google Cloud Asset client")
 
 
@@ -177,7 +178,7 @@ async def get_bucket_policies(project_id: str) -> ProjectPoliciesResponse:
         client = asset_v1.AssetServiceClient(credentials=creds)
         parent = f"projects/{project_id}"
 
-        logger.info(f"Fetching bucket IAM policies via Asset API for project: {project_id}")
+        logger.info("Fetching bucket IAM policies via Asset API", project_id=project_id)
 
         request = asset_v1.ListAssetsRequest(
             parent=parent,
@@ -191,7 +192,7 @@ async def get_bucket_policies(project_id: str) -> ProjectPoliciesResponse:
             response = await loop.run_in_executor(executor, lambda: list(client.list_assets(request=request)))
 
         total_resources = len(response)
-        logger.info(f"Found {total_resources} buckets to process")
+        logger.info("Found buckets to process", count=total_resources)
 
         if not response:
             return ProjectPoliciesResponse(
@@ -215,11 +216,12 @@ async def get_bucket_policies(project_id: str) -> ProjectPoliciesResponse:
             if isinstance(result, Exception):
                 error_msg = f"Failed to process bucket: {str(result)}"
                 errors.append(error_msg)
-                logger.error(error_msg)
+                logger.error("Failed to process bucket", error=str(result))
             else:
                 policies.append(result)
 
-        logger.info(f"Completed bucket Asset API scan. Total buckets found: {total_resources}, Policies retrieved: {len(policies)}, Errors: {len(errors)}")
+        logger.info("Completed bucket Asset API scan", 
+                   total_buckets=total_resources, policies_retrieved=len(policies), errors=len(errors))
 
         return ProjectPoliciesResponse(
             project_id=project_id,
@@ -234,7 +236,7 @@ async def get_bucket_policies(project_id: str) -> ProjectPoliciesResponse:
             detail=f"Permission denied accessing project {project_id}. Ensure you have the required Asset API permissions for Cloud Storage buckets."
         )
     except Exception as e:
-        logger.error(f"Failed to fetch bucket policies for project {project_id}: {e}")
+        logger.error("Failed to fetch bucket policies", project_id=project_id, error=str(e))
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch bucket IAM policies via Asset API: {str(e)}"
@@ -249,7 +251,7 @@ async def fetch_vm_iam_policies_asset_api(project_id: str) -> ProjectPoliciesRes
         client = asset_v1.AssetServiceClient(credentials=creds)
         parent = f"projects/{project_id}"
 
-        logger.info(f"Fetching all VM instances via Asset API for project: {project_id}")
+        logger.info("Fetching all VM instances via Asset API", project_id=project_id)
 
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
@@ -263,7 +265,7 @@ async def fetch_vm_iam_policies_asset_api(project_id: str) -> ProjectPoliciesRes
                 executor, lambda: list(client.list_assets(request=resource_request))
             )
 
-            logger.info(f"Found {len(resource_assets)} VM instances (RESOURCE)")
+            logger.info("Found VM instances (RESOURCE)", count=len(resource_assets))
 
             iam_request = asset_v1.ListAssetsRequest(
                 parent=parent,
@@ -275,7 +277,7 @@ async def fetch_vm_iam_policies_asset_api(project_id: str) -> ProjectPoliciesRes
                 executor, lambda: list(client.list_assets(request=iam_request))
             )
 
-            logger.info(f"Found {len(iam_assets)} VM instances with IAM policies (IAM_POLICY)")
+            logger.info("Found VM instances with IAM policies (IAM_POLICY)", count=len(iam_assets))
 
         iam_dict = {a.name: a.iam_policy for a in iam_assets if a.iam_policy}
 
@@ -299,9 +301,11 @@ async def fetch_vm_iam_policies_asset_api(project_id: str) -> ProjectPoliciesRes
             except Exception as e:
                 error_msg = f"Failed to process VM instance {getattr(asset, 'name', 'unknown')}: {str(e)}"
                 errors.append(error_msg)
-                logger.error(error_msg)
+                logger.error("Failed to process VM instance", 
+                           resource_name=getattr(asset, 'name', 'unknown'), error=str(e))
 
-        logger.info(f"Completed VM Asset API scan. Total VMs: {len(resource_assets)}, Policies retrieved: {len(policies)}, Errors: {len(errors)}")
+        logger.info("Completed VM Asset API scan", 
+                   total_vms=len(resource_assets), policies_retrieved=len(policies), errors=len(errors))
 
         return ProjectPoliciesResponse(
             project_id=project_id,
@@ -316,7 +320,7 @@ async def fetch_vm_iam_policies_asset_api(project_id: str) -> ProjectPoliciesRes
             detail=f"Permission denied accessing project {project_id}. Ensure you have the required Asset API permissions."
         )
     except Exception as e:
-        logger.error(f"Failed to fetch VM instance policies for project {project_id}: {e}")
+        logger.error("Failed to fetch VM instance policies", project_id=project_id, error=str(e))
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch VM instance IAM policies via Asset API: {str(e)}"
