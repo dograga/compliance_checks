@@ -5,12 +5,9 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from .dataclass import (
-    ProjectPoliciesResponse, ComplianceAnalysisResponse
-)
+from .dataclass import ProjectPoliciesResponse
 from .gcp_helper import (
     get_bucket_policies, fetch_vm_iam_policies_asset_api,
-    analyze_compliance_issues
 )
 
 # Create data directory for JSON dumps
@@ -61,60 +58,55 @@ async def get_iam_policies(
 
 @app.post("/projects/{project_id}/save-iam-data")
 async def save_iam_data(project_id: str) -> Dict[str, Any]:
-    """Save all IAM data to JSON file for offline use"""
+    """Save VM instance and bucket IAM data to JSON file"""
     try:
         logger.info(f"Saving IAM data for project: {project_id}")
-        
-        # Fetch all IAM policies (using VM instance method by default)
-        policies_response = await fetch_vm_iam_policies_asset_api(project_id)
-        
-        # Perform compliance analysis
-        compliance_analysis = analyze_compliance_issues(project_id, policies_response.policies)
-        
-        # Create comprehensive data structure
+
+        # Fetch VM instance IAM policies
+        vm_policies_response = await fetch_vm_iam_policies_asset_api(project_id)
+        vm_policies = [p.dict() for p in vm_policies_response.policies]
+
+        # Fetch bucket IAM policies
+        bucket_policies_response = await get_bucket_policies(project_id)
+        bucket_policies = [p.dict() for p in bucket_policies_response.policies]
+
+        # Prepare JSON structure
         iam_data = {
             "project_id": project_id,
             "timestamp": datetime.now().isoformat(),
             "data": {
-                "policies": {
-                    "data": [policy.dict() for policy in policies_response.policies],
-                    "count": policies_response.total_policies
+                "vm_instances": {
+                    "policies": vm_policies,
+                    "count": len(vm_policies)
                 },
-                "compliance_analysis": {
-                    "data": compliance_analysis.dict(),
-                    "issues_count": len(compliance_analysis.issues_found)
-                },
-                "errors": {
-                    "data": policies_response.errors,
-                    "count": len(policies_response.errors)
+                "buckets": {
+                    "policies": bucket_policies,
+                    "count": len(bucket_policies)
                 }
-            },
-            "summary": {
-                "total_resources": policies_response.total_policies,
-                "resources_with_policies": len([p for p in policies_response.policies if p.policy and not p.error]),
-                "compliance_issues": len(compliance_analysis.issues_found),
-                "public_access_issues": compliance_analysis.summary.get("public_access", 0),
-                "cross_project_issues": compliance_analysis.summary.get("cross_project_access", 0),
-                "high_severity_issues": compliance_analysis.summary.get("high_severity", 0)
             }
         }
-        
+
         # Save to JSON file
         file_path = DATA_DIR / f"{project_id}_iam_data.json"
         with open(file_path, 'w') as f:
             json.dump(iam_data, f, indent=2, default=str)
-        
+
         logger.info(f"IAM data saved to {file_path}")
-        
+
         return {
             "message": "IAM data saved successfully",
             "file_path": str(file_path),
             "timestamp": iam_data["timestamp"],
-            "summary": iam_data["summary"]
+            "summary": {
+                "vm_count": len(vm_policies),
+                "bucket_count": len(bucket_policies)
+            }
         }
+
     except Exception as e:
         logger.error(f"Error saving IAM data for project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to save IAM data: {str(e)}")
+
 
 
 @app.get("/iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)

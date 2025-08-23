@@ -38,23 +38,3 @@ class ProjectPoliciesResponse(BaseModel):
     policies: List[PolicyResponse]
     total_policies: int
     errors: List[str] = []
-
-
-class ComplianceIssue(BaseModel):
-    """Represents a compliance issue found in IAM policies."""
-    resource_name: str
-    asset_type: str
-    issue_type: str  # "public_access", "cross_project_access"
-    severity: str  # "high", "medium", "low"
-    description: str
-    role: str
-    members: List[str]
-
-
-class ComplianceAnalysisResponse(BaseModel):
-    """Response model for compliance analysis."""
-    project_id: str
-    total_resources_analyzed: int
-    issues_found: List[ComplianceIssue]
-    summary: Dict[str, int]  # Count by issue type
-    recommendations: List[str]

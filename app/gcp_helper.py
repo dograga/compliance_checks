@@ -14,8 +14,7 @@ from google.auth import default
 import google.auth
 
 from .dataclass import (
-    IAMPolicy, IAMBinding, PolicyResponse, ProjectPoliciesResponse,
-    ComplianceIssue, ComplianceAnalysisResponse
+    IAMPolicy, IAMBinding, PolicyResponse, ProjectPoliciesResponse
 )
 
 logger = logging.getLogger(__name__)
@@ -324,74 +323,3 @@ async def fetch_vm_iam_policies_asset_api(project_id: str) -> ProjectPoliciesRes
         )
 
 
-def analyze_compliance_issues(project_id: str, policies: List[PolicyResponse]) -> ComplianceAnalysisResponse:
-    """Analyze IAM policies for compliance issues."""
-    issues = []
-    
-    for policy_response in policies:
-        if not policy_response.policy or policy_response.error:
-            continue
-            
-        for binding in policy_response.policy.bindings:
-            # Check for public access (allUsers, allAuthenticatedUsers)
-            public_members = [m for m in binding.members if m in ["allUsers", "allAuthenticatedUsers"]]
-            if public_members:
-                severity = "high" if "allUsers" in public_members else "medium"
-                issues.append(ComplianceIssue(
-                    resource_name=policy_response.resource_name,
-                    asset_type=policy_response.asset_type,
-                    issue_type="public_access",
-                    severity=severity,
-                    description=f"Resource has public access via {', '.join(public_members)}",
-                    role=binding.role,
-                    members=public_members
-                ))
-            
-            # Check for cross-project access
-            cross_project_members = []
-            for member in binding.members:
-                if member.startswith(("user:", "serviceAccount:", "group:")):
-                    if "@" in member:
-                        domain_part = member.split("@")[1]
-                        if ".iam.gserviceaccount.com" in domain_part:
-                            sa_project = domain_part.replace(".iam.gserviceaccount.com", "")
-                            if sa_project != project_id:
-                                cross_project_members.append(member)
-                        elif not domain_part.endswith((".google.com", ".googleusercontent.com")):
-                            cross_project_members.append(member)
-            
-            if cross_project_members:
-                issues.append(ComplianceIssue(
-                    resource_name=policy_response.resource_name,
-                    asset_type=policy_response.asset_type,
-                    issue_type="cross_project_access",
-                    severity="medium",
-                    description="Resource has cross-project or external access",
-                    role=binding.role,
-                    members=cross_project_members
-                ))
-    
-    # Generate summary
-    summary = {
-        "public_access": len([i for i in issues if i.issue_type == "public_access"]),
-        "cross_project_access": len([i for i in issues if i.issue_type == "cross_project_access"]),
-        "high_severity": len([i for i in issues if i.severity == "high"]),
-        "medium_severity": len([i for i in issues if i.severity == "medium"])
-    }
-    
-    # Generate recommendations
-    recommendations = []
-    if summary["public_access"] > 0:
-        recommendations.append("Review and restrict public access (allUsers/allAuthenticatedUsers) where not necessary")
-    if summary["cross_project_access"] > 0:
-        recommendations.append("Audit cross-project access and ensure it follows principle of least privilege")
-    if summary["high_severity"] > 0:
-        recommendations.append("Prioritize fixing high-severity issues (allUsers access)")
-    
-    return ComplianceAnalysisResponse(
-        project_id=project_id,
-        total_resources_analyzed=len([p for p in policies if p.policy and not p.error]),
-        issues_found=issues,
-        summary=summary,
-        recommendations=recommendations
-    )
