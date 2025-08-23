@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from google.auth import default
 import app.buckets as buckets
+import app.instances as instances
 from .dataclass import (
     ProjectPoliciesResponse, ComplianceAnalysisResponse
 )
@@ -149,7 +149,7 @@ async def get_vm_iam_policies_asset_api(project_id: str):
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
-        result = await fetch_vm_iam_policies_asset_api(project_id)
+        result = await instances.fetch_vm_iam_policies_asset_api(project_id)
         logger.info(f"Successfully fetched {result.total_policies} VM instance policies via Asset API for project {project_id}")
         return result
     except HTTPException:
