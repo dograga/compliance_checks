@@ -27,6 +27,11 @@ class PolicyResponse(BaseModel):
     error: Optional[str] = None
 
 
+# Legacy aliases for backward compatibility
+BucketPolicy = PolicyResponse
+VMPolicy = PolicyResponse
+
+
 class ProjectPoliciesResponse(BaseModel):
     """Response model for all policies in a project."""
     project_id: str

@@ -5,14 +5,11 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-import app.buckets as buckets
-import app.instances as instances
 from .dataclass import (
     ProjectPoliciesResponse, ComplianceAnalysisResponse
 )
-from .helper import (
-    fetch_iam_policies_for_project, fetch_iam_policies_asset_api, 
-    fetch_vm_iam_policies_asset_api, fetch_bucket_iam_policies_asset_api,
+from .gcp_helper import (
+    get_bucket_policies, fetch_vm_iam_policies_asset_api,
     analyze_compliance_issues
 )
 
@@ -52,7 +49,7 @@ async def get_iam_policies(
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
-        result = await fetch_iam_policies_for_project(project_id, zones)
+        result = await fetch_vm_iam_policies_asset_api(project_id)
         logger.info(f"Successfully fetched {result.total_policies} VM instance policies for project {project_id}")
         return result
     except HTTPException:
@@ -69,7 +66,7 @@ async def save_iam_data(project_id: str) -> Dict[str, Any]:
         logger.info(f"Saving IAM data for project: {project_id}")
         
         # Fetch all IAM policies (using VM instance method by default)
-        policies_response = await fetch_iam_policies_for_project(project_id)
+        policies_response = await fetch_vm_iam_policies_asset_api(project_id)
         
         # Perform compliance analysis
         compliance_analysis = analyze_compliance_issues(project_id, policies_response.policies)
@@ -131,7 +128,8 @@ async def get_iam_policies_asset_api(
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
-        result = await fetch_iam_policies_asset_api(project_id, asset_types)
+        # For now, use VM policies as the main asset API method
+        result = await fetch_vm_iam_policies_asset_api(project_id)
         logger.info(f"Successfully fetched {result.total_policies} resource policies via Asset API for project {project_id}")
         return result
     except HTTPException:
@@ -149,7 +147,7 @@ async def get_vm_iam_policies_asset_api(project_id: str):
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
-        result = await instances.fetch_vm_iam_policies_asset_api(project_id)
+        result = await fetch_vm_iam_policies_asset_api(project_id)
         logger.info(f"Successfully fetched {result.total_policies} VM instance policies via Asset API for project {project_id}")
         return result
     except HTTPException:
@@ -167,7 +165,7 @@ async def get_bucket_iam_policies_asset_api(project_id: str):
         raise HTTPException(status_code=400, detail="Project ID is required")
     
     try:
-        result = await buckets.get_bucket_policies(project_id)
+        result = await get_bucket_policies(project_id)
         logger.info(f"Successfully fetched {result.total_policies} bucket policies via Asset API for project {project_id}")
         return result
     except HTTPException:
