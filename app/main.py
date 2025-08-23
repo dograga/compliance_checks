@@ -34,28 +34,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-@app.get("/iam-policies/{project_id}", response_model=ProjectPoliciesResponse)
-async def get_iam_policies(
-    project_id: str,
-    zones: Optional[List[str]] = Query(None, description="List of zones to filter")
-):
-    logger.info(f"Fetching VM instance IAM policies for project: {project_id}")
-    
-    if not project_id:
-        raise HTTPException(status_code=400, detail="Project ID is required")
-    
-    try:
-        result = await fetch_vm_iam_policies_asset_api(project_id)
-        logger.info(f"Successfully fetched {result.total_policies} VM instance policies for project {project_id}")
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error fetching policies for project {project_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
 @app.post("/projects/{project_id}/save-iam-data")
 async def save_iam_data(project_id: str) -> Dict[str, Any]:
     """Save VM instance and bucket IAM data to JSON file"""
@@ -106,30 +84,6 @@ async def save_iam_data(project_id: str) -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Error saving IAM data for project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to save IAM data: {str(e)}")
-
-
-
-@app.get("/iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)
-async def get_iam_policies_asset_api(
-    project_id: str,
-    asset_types: Optional[List[str]] = Query(None, description="List of asset types to filter")
-):
-    logger.info(f"Fetching all resource IAM policies via Asset API for project: {project_id}")
-    
-    if not project_id:
-        raise HTTPException(status_code=400, detail="Project ID is required")
-    
-    try:
-        # For now, use VM policies as the main asset API method
-        result = await fetch_vm_iam_policies_asset_api(project_id)
-        logger.info(f"Successfully fetched {result.total_policies} resource policies via Asset API for project {project_id}")
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error fetching policies via Asset API for project {project_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
 
 @app.get("/vm-iam-policies-asset-api/{project_id}", response_model=ProjectPoliciesResponse)
 async def get_vm_iam_policies_asset_api(project_id: str):
