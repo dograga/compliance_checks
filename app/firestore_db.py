@@ -31,8 +31,8 @@ class FirestoreDatabase:
             self.db = firestore.Client()
             logger.info("Using default Firestore database")
             
-        self.buckets_collection = "buckets"
-        self.instances_collection = "instances"
+        self.buckets_collection = "buckets-policies"
+        self.instances_collection = "instances-policies"
         self.compliance_collection = "compliance_data"
     
     async def save_bucket_record(self, bucket_record: Dict[str, Any]) -> str:
