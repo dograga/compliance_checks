@@ -487,12 +487,20 @@ async def fetch_vm_instances_folder_org(parent: str) -> List[Dict[str, Any]]:
                 project_number = ancestors_info["project_number"]
                 organization_id = ancestors_info["organization_id"]
                 
-                # Extract instance name from asset name (projects/PROJECT_ID/zones/ZONE/instances/INSTANCE_NAME)
+                # Extract instance name and zone from asset name
+                # Format: //compute.googleapis.com/projects/PROJECT_ID/zones/ZONE/instances/INSTANCE_NAME
                 name_parts = asset.name.split('/')
                 instance_name = name_parts[-1] if len(name_parts) > 0 else "unknown"
                 
-                # Extract zone and other metadata
-                zone = name_parts[3] if len(name_parts) > 3 else "unknown"
+                # Extract zone from the path pattern zones/[zone_name]/instances
+                zone = "unknown"
+                try:
+                    for i, part in enumerate(name_parts):
+                        if part == "zones" and i + 1 < len(name_parts):
+                            zone = name_parts[i + 1]
+                            break
+                except Exception:
+                    zone = "unknown"
                 
                 # Process IAM policy
                 policy = None

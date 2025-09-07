@@ -67,19 +67,13 @@ class ComplianceDataRequest(BaseModel):
             raise ValueError("Either folder_id or org_id must be provided")
 
 
-class ComplianceDataResponse(BaseModel):
-    """Response model for stored compliance data."""
-    id: str
+class PolicyCollectionRequest(BaseModel):
+    """Request model for bucket or instance policy collection."""
     folder_id: Optional[str] = None
     org_id: Optional[str] = None
-    timestamp: str
-    summary: Dict[str, int]
-    projects_discovered: List[str]
-    total_projects_count: int
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        if not self.folder_id and not self.org_id:
+            raise ValueError("Either folder_id or org_id must be provided")
 
-
-class ComplianceDataListResponse(BaseModel):
-    """Response model for listing compliance data."""
-    items: List[ComplianceDataResponse]
-    total_count: int
-    filters_applied: Dict[str, Any]
