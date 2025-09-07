@@ -13,4 +13,6 @@ dependencies = [
     "pydantic>=2.5.0",
     "google-cloud-resource-manager>=1.14.2",
     "structlog>=23.2.0",
+    "google-cloud-firestore>=2.13.1",
+    "tinydb>=4.8.0",
 ]
